@@ -253,16 +253,40 @@ function showPreview(pv) {
       (pv.conflicts ? stat(t("pvConflicts"), pv.conflicts, "warn") : "");
   const max = Math.max(1, ...(pv.top_dirs || []).map((d) => d.bytes));
   $("#preview-dirs").innerHTML = (pv.top_dirs || []).length > 1
-    ? `<h3>${t("pvTopDirs")}</h3>` + pv.top_dirs.map((d) => `<div class="pv-dir"><span class="pv-dir-name">${esc(d.dir || t("pvRoot"))}</span>
+    ? `<h3>${t("pvTopDirs")}</h3>` + pv.top_dirs.map((d) => `<div class="pv-dir${isTrashName(d.dir) ? " trash" : ""}"><span class="pv-dir-name">${esc(d.dir || t("pvRoot"))}</span>
         <span class="pv-dir-bar"><span style="width:${((d.bytes / max) * 100).toFixed(1)}%"></span></span>
-        <span class="pv-size">${t("files", d.files)} · ${size(d.bytes)}</span></div>`).join("")
+        <span class="pv-size">${t("files", d.files)} · ${size(d.bytes)}</span>
+        ${d.dir ? `<button class="btn tiny ghost" data-exclude="${esc(d.dir)}">${t("exclude")}</button>` : "<span></span>"}</div>`).join("")
     : "";
-  $("#preview-online").textContent = pv.online_skipped ? t("pvOnline", pv.online_skipped) : "";
+  const trash = (pv.top_dirs || []).filter((d) => isTrashName(d.dir)).map((d) => d.dir);
+  $("#preview-online").textContent = [
+    trash.length ? t("pvTrash", trash.join(", ")) : "",
+    pv.online_skipped ? t("pvOnline", pv.online_skipped) : "",
+  ].filter(Boolean).join("\n");
   $("#preview-list").innerHTML =
     pv.items.map((it) => `<li class="pv-${it.kind}"><span class="pv-kind">${PV_ICON[it.kind]}</span><span class="pv-rel">${esc(it.rel)}</span>${it.size ? `<span class="pv-size">${size(it.size)}</span>` : ""}</li>`).join("") +
     (pv.truncated ? `<li class="muted">${t("pvTruncated", pv.items.length)}</li>` : "");
-  $("#dlg-preview").showModal();
+  if (!$("#dlg-preview").open) $("#dlg-preview").showModal();
 }
+// Dossiers qui ressemblent à une corbeille (MEGA, Windows, Linux, macOS…).
+const TRASH_RE = /^(rubbish( bin)?|trash|\.trash(es|-\d+)?|\$recycle\.bin|recycle(d| bin)|corbeille)$/i;
+const isTrashName = (dir) => !!dir && TRASH_RE.test(dir);
+
+// Exclure un dossier depuis l'aperçu, puis recalculer.
+$("#preview-dirs").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-exclude]");
+  if (!b || !pendingPair) return;
+  const dir = b.dataset.exclude;
+  if (!pendingPair.excludes.includes(dir)) pendingPair.excludes = [...pendingPair.excludes, dir];
+  form.excludes.value = pendingPair.excludes.join("\n");
+  b.disabled = true;
+  b.textContent = t("analysing");
+  try {
+    showPreview(await invoke("preview_pair", { pair: pendingPair }));
+  } catch (err) {
+    toast(String(err));
+  }
+});
 $("#btn-preview-back").onclick = () => $("#dlg-preview").close();
 $("#btn-preview-go").onclick = async () => {
   $("#dlg-preview").close();
@@ -467,7 +491,7 @@ async function mockInvoke(cmd) {
   if (cmd === "preview_pair") {
     return {
       to_right: 1240, to_left: 12, deletes: 0, moves: 3, conflicts: 2, bytes: 5.2e9, truncated: true, online_skipped: 37,
-      top_dirs: [{ dir: "Photos", files: 900, bytes: 4.1e9 }, { dir: "Docs", files: 300, bytes: 0.9e9 }, { dir: "", files: 52, bytes: 0.2e9 }],
+      top_dirs: [{ dir: "Rubbish", files: 1548, bytes: 6.2e9 }, { dir: "Photos", files: 900, bytes: 4.1e9 }, { dir: "Docs", files: 300, bytes: 0.9e9 }, { dir: "", files: 52, bytes: 0.2e9 }],
       items: [
         { kind: "to_right", rel: "vacances/IMG_2041.jpg", size: 4200000 },
         { kind: "to_left", rel: "docs/facture.pdf", size: 120000 },

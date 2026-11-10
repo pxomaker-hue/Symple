@@ -205,6 +205,8 @@ fn cloud_internals_ignored_and_top_dirs() {
     let rep = Rec::default();
     write(&l.join(".debris/2026-11-01/Logements/plan.pdf"), "corbeille mega", 1000);
     write(&l.join(".sync_abc123.db"), "nextcloud", 1000);
+    write(&l.join(".sync/StreamsList"), "resilio", 1000);
+    write(&l.join(".stfolder/x"), "syncthing", 1000);
     write(&l.join("Photos/a.jpg"), "aaaaaaaaaa", 1000);
     write(&l.join("Docs/b.txt"), "b", 1000);
     let pv = e.preview().unwrap();
@@ -213,5 +215,7 @@ fn cloud_internals_ignored_and_top_dirs() {
     e.sync(None, &rep).unwrap();
     assert!(!r.join(".debris").exists());
     assert!(!r.join(".sync_abc123.db").exists());
+    assert!(!r.join(".sync").exists());
+    assert!(!r.join(".stfolder").exists());
     assert!(r.join("Photos/a.jpg").exists());
 }
