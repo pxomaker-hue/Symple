@@ -39,7 +39,7 @@ function renderPairs() {
   if (!S.pairs.length) {
     root.innerHTML = `<div class="empty"><div class="big">⇄</div><h2>Aucune paire de dossiers</h2>
       <p>Ajoute deux dossiers (sur ce PC ou sur ton NAS) pour les garder synchronisés en temps réel.</p>
-      <button class="btn primary" onclick="openEditor()">＋ Créer ma première paire</button></div>`;
+      <button class="btn primary" id="btn-first-pair">＋ Créer ma première paire</button></div>`;
   } else {
     root.innerHTML = S.pairs.map(cardHtml).join("");
   }
@@ -185,6 +185,8 @@ form.addEventListener("submit", async (e) => {
 
 // -------------------------------------------------------- actions cartes
 $("#pairs").addEventListener("click", async (e) => {
+  // Pas d'onclick inline : la CSP de Tauri les bloque.
+  if (e.target.closest("#btn-first-pair")) return openEditor();
   const open = e.target.closest("[data-open]");
   if (open) return invoke("open_folder", { path: open.dataset.open }).catch(toast);
   const btn = e.target.closest("[data-act]");
