@@ -1,6 +1,6 @@
 [package]
 name = "symple"
-version = "0.1.0"
+version = "0.2.0"
 description = "Synchronisation de dossiers en temps réel, légère et rapide"
 edition = "2021"
 license = "MIT"
@@ -10,7 +10,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 symple-core = { path = "../core" }
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"

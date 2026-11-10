@@ -42,14 +42,17 @@ VIAddVersionKey "LegalCopyright" "MIT"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "sidebar.bmp"
 !define MUI_UNWELCOMEFINISHPAGE_BITMAP "sidebar.bmp"
 !define MUI_ABORTWARNING
+!define MUI_LANGDLL_REGISTRY_ROOT "HKCU"
+!define MUI_LANGDLL_REGISTRY_KEY "Software\${APP}"
+!define MUI_LANGDLL_REGISTRY_VALUENAME "InstallerLanguage"
 !define MUI_COMPONENTSPAGE_SMALLDESC
 
-!define MUI_WELCOMEPAGE_TITLE "Bienvenue dans l'installation de ${APP}"
-!define MUI_WELCOMEPAGE_TEXT "${APP} synchronise vos dossiers en temps réel, sur votre PC ou votre NAS.$\r$\n$\r$\nAucun droit administrateur n'est nécessaire.$\r$\n$\r$\nCliquez sur Suivant pour continuer."
+!define MUI_WELCOMEPAGE_TITLE "$(WELCOME_TITLE)"
+!define MUI_WELCOMEPAGE_TEXT "$(WELCOME_TEXT)"
 
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXE}"
-!define MUI_FINISHPAGE_RUN_TEXT "Lancer ${APP} maintenant"
-!define MUI_FINISHPAGE_LINK "Projet sur GitHub"
+!define MUI_FINISHPAGE_RUN_TEXT "$(RUN_TEXT)"
+!define MUI_FINISHPAGE_LINK "$(LINK_TEXT)"
 !define MUI_FINISHPAGE_LINK_LOCATION "https://github.com/pxomaker-hue/Symple"
 
 ; ----------------------------------------------------------------- pages
@@ -65,9 +68,55 @@ VIAddVersionKey "LegalCopyright" "MIT"
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "French"
+!insertmacro MUI_LANGUAGE "English"
+!insertmacro MUI_RESERVEFILE_LANGDLL
+
+; ------------------------------------------------------------- textes FR / EN
+LangString WELCOME_TITLE ${LANG_FRENCH}  "Bienvenue dans l'installation de ${APP}"
+LangString WELCOME_TITLE ${LANG_ENGLISH} "Welcome to ${APP} Setup"
+LangString WELCOME_TEXT ${LANG_FRENCH}  "${APP} synchronise vos dossiers en temps réel, sur votre PC ou votre NAS.$\r$\n$\r$\nAucun droit administrateur n'est nécessaire.$\r$\n$\r$\nCliquez sur Suivant pour continuer."
+LangString WELCOME_TEXT ${LANG_ENGLISH} "${APP} keeps your folders in sync in real time, on your PC or your NAS.$\r$\n$\r$\nNo administrator rights needed.$\r$\n$\r$\nClick Next to continue."
+LangString RUN_TEXT ${LANG_FRENCH}  "Lancer ${APP} maintenant"
+LangString RUN_TEXT ${LANG_ENGLISH} "Launch ${APP} now"
+LangString LINK_TEXT ${LANG_FRENCH}  "Projet sur GitHub"
+LangString LINK_TEXT ${LANG_ENGLISH} "Project on GitHub"
+LangString SEC_APP ${LANG_FRENCH}  "${APP} (requis)"
+LangString SEC_APP ${LANG_ENGLISH} "${APP} (required)"
+LangString SEC_DESKTOP ${LANG_FRENCH}  "Raccourci sur le Bureau"
+LangString SEC_DESKTOP ${LANG_ENGLISH} "Desktop shortcut"
+LangString SEC_START ${LANG_FRENCH}  "Raccourci dans le menu Démarrer"
+LangString SEC_START ${LANG_ENGLISH} "Start menu shortcut"
+LangString SEC_AUTO ${LANG_FRENCH}  "Lancer au démarrage de Windows"
+LangString SEC_AUTO ${LANG_ENGLISH} "Start with Windows"
+LangString DESC_APP ${LANG_FRENCH}  "L'application ${APP}."
+LangString DESC_APP ${LANG_ENGLISH} "The ${APP} application."
+LangString DESC_DESKTOP ${LANG_FRENCH}  "Ajoute une icône ${APP} sur le Bureau."
+LangString DESC_DESKTOP ${LANG_ENGLISH} "Adds a ${APP} icon to the desktop."
+LangString DESC_START ${LANG_FRENCH}  "Ajoute ${APP} au menu Démarrer."
+LangString DESC_START ${LANG_ENGLISH} "Adds ${APP} to the Start menu."
+LangString DESC_AUTO ${LANG_FRENCH}  "Démarre ${APP} réduit dans la barre des tâches à l'ouverture de session."
+LangString DESC_AUTO ${LANG_ENGLISH} "Starts ${APP} minimized to the taskbar when you sign in."
+LangString UNINST_LNK ${LANG_FRENCH}  "Désinstaller ${APP}"
+LangString UNINST_LNK ${LANG_ENGLISH} "Uninstall ${APP}"
+LangString WEBVIEW_MSG ${LANG_FRENCH}  "Microsoft WebView2 semble absent : ${APP} en a besoin pour s'afficher.$\r$\nOuvrir la page de téléchargement ?"
+LangString WEBVIEW_MSG ${LANG_ENGLISH} "Microsoft WebView2 seems to be missing: ${APP} needs it to display.$\r$\nOpen the download page?"
+LangString UNSEC_DATA ${LANG_FRENCH}  "Supprimer mes paires et réglages"
+LangString UNSEC_DATA ${LANG_ENGLISH} "Remove my pairs and settings"
+LangString UNDESC_APP ${LANG_FRENCH}  "Supprime l'application et ses raccourcis. Vos fichiers synchronisés ne sont jamais touchés."
+LangString UNDESC_APP ${LANG_ENGLISH} "Removes the application and its shortcuts. Your synced files are never touched."
+LangString UNDESC_DATA ${LANG_FRENCH}  "Supprime aussi la configuration des paires et l'historique de synchro."
+LangString UNDESC_DATA ${LANG_ENGLISH} "Also removes the pair configuration and sync history."
+
+Function .onInit
+  !insertmacro MUI_LANGDLL_DISPLAY
+FunctionEnd
+
+Function un.onInit
+  !insertmacro MUI_UNGETLANGUAGE
+FunctionEnd
 
 ; -------------------------------------------------------------- sections
-Section "${APP} (requis)" SecApp
+Section "$(SEC_APP)" SecApp
   SectionIn RO
   ; Ferme une instance en cours pour pouvoir remplacer l'exécutable.
   nsExec::Exec 'taskkill /f /im "${EXE}"'
@@ -93,31 +142,31 @@ Section "${APP} (requis)" SecApp
   ReadRegStr $1 HKCU "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
   ${If} $0 == ""
   ${AndIf} $1 == ""
-    MessageBox MB_YESNO|MB_ICONEXCLAMATION "Microsoft WebView2 semble absent : ${APP} en a besoin pour s'afficher.$\r$\nOuvrir la page de téléchargement ?" IDNO +2
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(WEBVIEW_MSG)" IDNO +2
       ExecShell "open" "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
   ${EndIf}
 SectionEnd
 
-Section "Raccourci sur le Bureau" SecDesktop
+Section "$(SEC_DESKTOP)" SecDesktop
   CreateShortcut "$DESKTOP\${APP}.lnk" "$INSTDIR\${EXE}" "" "$INSTDIR\icon.ico"
 SectionEnd
 
-Section "Raccourci dans le menu Démarrer" SecStartMenu
+Section "$(SEC_START)" SecStartMenu
   CreateDirectory "$SMPROGRAMS\${APP}"
   CreateShortcut "$SMPROGRAMS\${APP}\${APP}.lnk" "$INSTDIR\${EXE}" "" "$INSTDIR\icon.ico"
-  CreateShortcut "$SMPROGRAMS\${APP}\Désinstaller ${APP}.lnk" "$INSTDIR\uninstall.exe"
+  CreateShortcut "$SMPROGRAMS\${APP}\$(UNINST_LNK).lnk" "$INSTDIR\uninstall.exe"
 SectionEnd
 
-Section /o "Lancer au démarrage de Windows" SecAutostart
+Section /o "$(SEC_AUTO)" SecAutostart
   ; Même clé que l'option « Lancer au démarrage » de l'application.
   WriteRegStr HKCU "${RUN_KEY}" "${APP}" '"$INSTDIR\${EXE}" --minimized'
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecApp} "L'application ${APP}."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "Ajoute une icône ${APP} sur le Bureau."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecStartMenu} "Ajoute ${APP} au menu Démarrer."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecAutostart} "Démarre ${APP} réduit dans la barre des tâches à l'ouverture de session."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecApp} "$(DESC_APP)"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "$(DESC_DESKTOP)"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecStartMenu} "$(DESC_START)"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecAutostart} "$(DESC_AUTO)"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; ---------------------------------------------------------- désinstallation
@@ -136,12 +185,12 @@ Section "un.${APP}" UnSecApp
   DeleteRegKey HKCU "Software\${APP}"
 SectionEnd
 
-Section /o "un.Supprimer mes paires et réglages" UnSecData
+Section /o "un.$(UNSEC_DATA)" UnSecData
   RMDir /r "$APPDATA\org.symple.app"
   RMDir /r "$LOCALAPPDATA\org.symple.app"
 SectionEnd
 
 !insertmacro MUI_UNFUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${UnSecApp} "Supprime l'application et ses raccourcis. Vos fichiers synchronisés ne sont jamais touchés."
-  !insertmacro MUI_DESCRIPTION_TEXT ${UnSecData} "Supprime aussi la configuration des paires et l'historique de synchro."
+  !insertmacro MUI_DESCRIPTION_TEXT ${UnSecApp} "$(UNDESC_APP)"
+  !insertmacro MUI_DESCRIPTION_TEXT ${UnSecData} "$(UNDESC_DATA)"
 !insertmacro MUI_UNFUNCTION_DESCRIPTION_END

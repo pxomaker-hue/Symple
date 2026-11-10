@@ -101,6 +101,8 @@ fn conflict_policies() {
     // Demander
     let (t, mut e) = setup(SyncMode::Bidirectional, false, ConflictPolicy::Ask);
     let (l, r) = (t.path().join("L"), t.path().join("R"));
+    write(&l.join("f.txt"), "base", 1000);
+    e.sync(None, &rep).unwrap();
     write(&l.join("f.txt"), "gauche", 5000);
     write(&r.join("f.txt"), "droite!", 6000);
     e.sync(None, &rep).unwrap();
@@ -142,4 +144,56 @@ fn runner_realtime() {
     });
     drop(runner);
     assert!(ok, "le watcher doit copier sans attendre le polling");
+}
+
+#[test]
+fn first_sync_ask_does_not_flood() {
+    let (t, mut e) = setup(SyncMode::Bidirectional, false, ConflictPolicy::Ask);
+    let (l, r) = (t.path().join("L"), t.path().join("R"));
+    let rep = Rec::default();
+    write(&l.join("f.txt"), "gauche", 5000);
+    write(&r.join("f.txt"), "droite!", 6000);
+    let pv = e.preview().unwrap();
+    assert_eq!(pv.conflicts, 1);
+    e.sync(None, &rep).unwrap();
+    assert!(rep.0.lock().unwrap().is_empty(), "pas de pop-up à la 1re synchro");
+    assert_eq!(read(&l.join("f.txt")), "droite!");
+}
+
+#[test]
+fn rename_is_moved_not_copied() {
+    let (t, mut e) = setup(SyncMode::Bidirectional, true, ConflictPolicy::Newest);
+    let (l, r) = (t.path().join("L"), t.path().join("R"));
+    let rep = Rec::default();
+    write(&l.join("a/gros.bin"), "contenu", 1000);
+    e.sync(None, &rep).unwrap();
+    fs::create_dir_all(l.join("b")).unwrap();
+    fs::rename(l.join("a/gros.bin"), l.join("b/renomme.bin")).unwrap();
+    let pv = e.preview().unwrap();
+    assert_eq!((pv.moves, pv.to_right, pv.deletes), (1, 0, 0));
+    let st = e.sync(None, &rep).unwrap();
+    assert_eq!(st.moved, 1);
+    assert_eq!(read(&r.join("b/renomme.bin")), "contenu");
+    assert!(!r.join("a/gros.bin").exists());
+}
+
+#[test]
+fn versions_are_kept() {
+    let t = tempfile::tempdir().unwrap();
+    let (l, r) = (t.path().join("L"), t.path().join("R"));
+    fs::create_dir_all(&l).unwrap();
+    fs::create_dir_all(&r).unwrap();
+    let cfg = PairConfig { id: "v".into(), left: l.clone(), right: r.clone(), versions: 2, ..Default::default() };
+    let mut e = Engine::new(cfg, &t.path().join("S"));
+    let rep = Rec::default();
+    for i in 0..4 {
+        write(&l.join("doc.txt"), &format!("v{i}"), 1000 + i * 10);
+        e.sync(None, &rep).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100)); // horodatage à la seconde
+    }
+    assert_eq!(read(&r.join("doc.txt")), "v3");
+    let kept = fs::read_dir(r.join(".symple-versions")).unwrap().count();
+    assert_eq!(kept, 2);
+    // Le dossier des versions n'est jamais synchronisé
+    assert!(!l.join(".symple-versions").exists());
 }
