@@ -32,6 +32,18 @@ npm run build    # installateurs dans target/release/bundle/
 cargo test -p symple-core
 ```
 
+## Installeur personnalisé (Windows)
+
+Double-clique sur **`build.bat`**. Il vérifie Rust, Node.js et NSIS (et installe NSIS avec winget s'il manque), compile Symple, puis produit `dist\Symple-<version>-setup.exe`.
+
+L'installeur (sans droits administrateur, en français) propose :
+- raccourci sur le Bureau et dans le menu Démarrer (cases à cocher) ;
+- lancement au démarrage de Windows (optionnel) ;
+- lancement de Symple à la fin de l'installation ;
+- désinstallation propre, avec option pour supprimer aussi les réglages.
+
+Le script NSIS est dans `installer/symple.nsi`, les visuels dans `installer/*.bmp`.
+
 ## Structure
 
 | Dossier | Rôle |
