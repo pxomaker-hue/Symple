@@ -35,6 +35,8 @@ pub struct PairConfig {
     pub enabled: bool,
     /// Intervalle de vérification complète (secondes). Indispensable pour les NAS/SMB.
     pub poll_secs: u64,
+    /// Nombre d'anciennes versions conservées pour chaque fichier écrasé (0 = aucune).
+    pub versions: u32,
 }
 
 impl Default for PairConfig {
@@ -50,6 +52,7 @@ impl Default for PairConfig {
             excludes: default_excludes(),
             enabled: true,
             poll_secs: 30,
+            versions: 0,
         }
     }
 }

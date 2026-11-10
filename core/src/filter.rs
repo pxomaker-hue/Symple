@@ -1,6 +1,6 @@
 //! Filtres d'exclusion (motifs glob, insensibles à la casse).
 
-use crate::engine::{TMP_SUFFIX, TRASH_DIR};
+use crate::engine::{TMP_SUFFIX, TRASH_DIR, VERSIONS_DIR};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
 pub struct Filter {
@@ -26,7 +26,7 @@ impl Filter {
         let rel = rel.replace('\\', "/");
         let name = rel.rsplit('/').next().unwrap_or(&rel);
         name.ends_with(TMP_SUFFIX)
-            || rel.split('/').any(|c| c == TRASH_DIR || self.names.is_match(c))
+            || rel.split('/').any(|c| c == TRASH_DIR || c == VERSIONS_DIR || self.names.is_match(c))
             || self.paths.is_match(&rel)
     }
 }

@@ -3,6 +3,7 @@
 use crate::config::PairConfig;
 use crate::engine::Engine;
 use crate::report::{ConflictChoice, Level, PairStatus, Reporter, State};
+use crate::tr;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{BTreeSet, VecDeque};
@@ -182,11 +183,18 @@ impl Worker {
                 self.status.error = None;
                 self.status.files = stats.files;
                 self.status.last_sync = Some(now_ms());
-                if stats.copied + stats.deleted > 0 {
+                if stats.copied + stats.deleted + stats.moved > 0 {
                     self.rep.log(
                         &self.engine.cfg.id,
                         Level::Info,
-                        format!("Synchro : {} copié(s), {} supprimé(s), {}", stats.copied, stats.deleted, human(stats.bytes)),
+                        tr!(
+                            "Synchro : {} copié(s), {} déplacé(s), {} supprimé(s), {}",
+                            "Sync: {} copied, {} moved, {} deleted, {}",
+                            stats.copied,
+                            stats.moved,
+                            stats.deleted,
+                            human(stats.bytes)
+                        ),
                     );
                 }
             }
@@ -225,7 +233,12 @@ impl Worker {
                 self.rep.log(
                     &self.engine.cfg.id,
                     Level::Warn,
-                    format!("Surveillance temps réel indisponible pour {} ({e}) : vérification périodique seulement", root.display()),
+                    tr!(
+                        "Surveillance temps réel indisponible pour {} ({}) : vérification périodique seulement",
+                        "Real-time watching unavailable for {} ({}): periodic checks only",
+                        root.display(),
+                        e
+                    ),
                 );
                 return None;
             }
@@ -239,12 +252,12 @@ fn now_ms() -> i64 {
 }
 
 fn human(b: u64) -> String {
-    let units = ["o", "Ko", "Mo", "Go", "To"];
+    let units: [&str; 5] = if crate::i18n::is_en() { ["B", "KB", "MB", "GB", "TB"] } else { ["o", "Ko", "Mo", "Go", "To"] };
     let mut v = b as f64;
     let mut i = 0;
     while v >= 1024.0 && i < units.len() - 1 {
         v /= 1024.0;
         i += 1;
     }
-    if i == 0 { format!("{b} o") } else { format!("{v:.1} {}", units[i]) }
+    if i == 0 { format!("{b} {}", units[0]) } else { format!("{v:.1} {}", units[i]) }
 }

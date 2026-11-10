@@ -194,3 +194,44 @@ textarea { resize: vertical; font-family: ui-monospace, Consolas, monospace; fon
   .layout { grid-template-columns: 1fr; }
   .activity { display: none; }
 }
+
+/* ------------------------------------------------------------ progression */
+.progress { margin: -2px 0 12px; }
+.progress .bar { height: 8px; border-radius: 99px; background: var(--bg); overflow: hidden; }
+.progress .bar span {
+  display: block; height: 100%; border-radius: 99px; transition: width .25s;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff));
+}
+.progress-text { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+
+/* ------------------------------------------------------------ aperçu */
+.preview-stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 14px; }
+.pv-stat { background: var(--bg); border-radius: 12px; padding: 10px 14px; min-width: 96px; display: flex; flex-direction: column; }
+.pv-stat b { font-size: 20px; color: var(--primary); }
+.pv-stat span { font-size: 12px; color: var(--muted); }
+.pv-stat.warn b { color: var(--warn); }
+.preview-list {
+  list-style: none; margin: 0; padding: 6px; max-height: 260px; overflow: auto; background: var(--bg);
+  border-radius: 12px; font-size: 12.5px;
+}
+.preview-list li { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; padding: 4px 6px; border-radius: 6px; }
+.preview-list li:hover { background: var(--panel); }
+.pv-kind { font-weight: 700; color: var(--primary); }
+.pv-delete_left .pv-kind, .pv-delete_right .pv-kind, .pv-conflict .pv-kind { color: var(--warn); }
+.pv-rel { word-break: break-all; user-select: text; }
+.pv-size { color: var(--muted); white-space: nowrap; }
+
+/* ------------------------------------------------------------ mise à jour */
+.update-banner {
+  display: flex; align-items: center; gap: 10px; padding: 9px 24px; font-weight: 600; font-size: 13px; color: #fff;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+}
+.update-banner[hidden] { display: none; }
+.update-banner span { flex: 1; }
+.update-banner .btn.primary { background: #fff; color: var(--primary); }
+.update-banner .btn.ghost { color: #fff; }
+select {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 7px 10px; outline: none;
+}
+.preview-list li.muted { display: block; }

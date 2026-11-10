@@ -44,6 +44,12 @@ jobs:
           if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { choco install nsis -y --no-progress | Out-Null }
           & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 /INPUTCHARSET UTF8 "/DVERSION=$v" installer\symple.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Joindre l'installeur personnalisé à la release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" (Get-ChildItem dist/*.exe).FullName --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: symple-windows
