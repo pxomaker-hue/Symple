@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Symple</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">⇄</div>
+      <div>
+        <h1>Symple</h1>
+        <p class="subtitle" id="summary">Synchronisation en temps réel</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="btn-sync-all" title="Tout synchroniser">⟳ Tout synchroniser</button>
+      <button class="btn icon ghost" id="btn-settings" title="Paramètres">⚙</button>
+      <button class="btn primary" id="btn-add">＋ Nouvelle paire</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="pairs" id="pairs"></section>
+    <aside class="activity">
+      <div class="activity-head">
+        <h2>Activité</h2>
+        <button class="btn tiny ghost" id="btn-clear-log">Effacer</button>
+      </div>
+      <ul id="log"></ul>
+    </aside>
+  </main>
+
+  <!-- Éditeur de paire -->
+  <dialog id="dlg-pair" class="modal">
+    <form id="form-pair" method="dialog">
+      <h2 id="pair-title">Nouvelle paire</h2>
+      <label class="field">
+        <span>Nom</span>
+        <input name="name" placeholder="Ex. Photos ⇄ NAS" />
+      </label>
+      <div class="folders">
+        <label class="field">
+          <span>Dossier A</span>
+          <div class="picker"><input name="left" placeholder="C:\Users\…  ou  \\NAS\partage" required /><button type="button" class="btn ghost" data-pick="left">Parcourir</button></div>
+        </label>
+        <div class="dir-arrow" id="dir-arrow">⇄</div>
+        <label class="field">
+          <span>Dossier B</span>
+          <div class="picker"><input name="right" placeholder="D:\Sauvegarde  ou  \\NAS\partage" required /><button type="button" class="btn ghost" data-pick="right">Parcourir</button></div>
+        </label>
+      </div>
+
+      <div class="field">
+        <span>Sens de synchronisation</span>
+        <div class="segmented" data-name="mode">
+          <button type="button" data-value="bidirectional">⇄ Bidirectionnelle</button>
+          <button type="button" data-value="mirror">→ Miroir A vers B</button>
+        </div>
+      </div>
+
+      <div class="field" id="conflict-field">
+        <span>En cas de conflit (modifié des deux côtés)</span>
+        <div class="segmented" data-name="conflict">
+          <button type="button" data-value="ask">Me demander</button>
+          <button type="button" data-value="newest_with_backup">Plus récent + copie</button>
+          <button type="button" data-value="newest">Plus récent</button>
+        </div>
+      </div>
+
+      <label class="switch">
+        <input type="checkbox" name="propagate_deletes" />
+        <span class="track"></span>
+        <span>Synchroniser les suppressions <small>(les fichiers vont à la corbeille)</small></span>
+      </label>
+
+      <details class="advanced">
+        <summary>Options avancées</summary>
+        <label class="field">
+          <span>Exclusions <small>(un motif par ligne, ex. *.tmp, node_modules, cache/*)</small></span>
+          <textarea name="excludes" rows="4"></textarea>
+        </label>
+        <label class="field inline">
+          <span>Vérification complète toutes les</span>
+          <input type="number" name="poll_secs" min="2" max="3600" /> <span>secondes</span>
+        </label>
+      </details>
+
+      <p class="form-error" id="pair-error"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close>Annuler</button>
+        <button type="submit" class="btn primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Conflit -->
+  <dialog id="dlg-conflict" class="modal conflict">
+    <h2>⚠ Conflit de version</h2>
+    <p class="muted">Le fichier a été modifié des deux côtés. Quelle version garder ?</p>
+    <p class="conflict-file" id="conflict-file"></p>
+    <div class="versions">
+      <button class="version" data-choice="keep_left">
+        <span class="tag a">A</span>
+        <strong id="conflict-left-path"></strong>
+        <span id="conflict-left-meta"></span>
+      </button>
+      <button class="version" data-choice="keep_right">
+        <span class="tag b">B</span>
+        <strong id="conflict-right-path"></strong>
+        <span id="conflict-right-meta"></span>
+      </button>
+    </div>
+    <div class="modal-actions">
+      <span class="muted" id="conflict-count"></span>
+      <button class="btn ghost" data-choice="later">Plus tard</button>
+      <button class="btn primary" data-choice="keep_both">Garder les deux</button>
+    </div>
+  </dialog>
+
+  <!-- Paramètres -->
+  <dialog id="dlg-settings" class="modal small">
+    <h2>Paramètres</h2>
+    <label class="switch"><input type="checkbox" id="set-autostart" /><span class="track"></span><span>Lancer Symple au démarrage de Windows</span></label>
+    <label class="switch"><input type="checkbox" id="set-minimized" /><span class="track"></span><span>Démarrer réduit dans la barre des tâches</span></label>
+    <p class="muted small-print">Fermer la fenêtre ne quitte pas Symple : il continue en arrière-plan. Pour quitter, clic droit sur l'icône de la barre des tâches.</p>
+    <div class="modal-actions"><button class="btn primary" data-close>Fermer</button></div>
+  </dialog>
+
+  <div id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
