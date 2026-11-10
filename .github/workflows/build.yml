@@ -42,7 +42,7 @@ jobs:
           $v = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           New-Item -ItemType Directory -Force dist | Out-Null
           if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { choco install nsis -y --no-progress | Out-Null }
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 "/DVERSION=$v" installer\symple.nsi
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 /INPUTCHARSET UTF8 "/DVERSION=$v" installer\symple.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
