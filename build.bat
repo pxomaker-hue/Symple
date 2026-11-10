@@ -44,7 +44,7 @@ rem -------------------------------------------------------------- installeur
 if not exist dist mkdir dist
 echo.
 echo Création de l'installeur...
-"%MAKENSIS%" /V2 /DVERSION=%VERSION% installer\symple.nsi || goto :fail
+"%MAKENSIS%" /V2 /INPUTCHARSET UTF8 /DVERSION=%VERSION% installer\symple.nsi || goto :fail
 
 echo.
 echo  [OK] Installeur prêt : dist\Symple-%VERSION%-setup.exe

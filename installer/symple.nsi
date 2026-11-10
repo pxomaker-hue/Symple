@@ -1,4 +1,4 @@
-; Installeur Symple (NSIS + Modern UI 2)
+﻿; Installeur Symple (NSIS + Modern UI 2)
 ; Compilé par build.bat :  makensis /DVERSION=x.y.z installer\symple.nsi
 
 Unicode true
