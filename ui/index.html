@@ -82,6 +82,12 @@
         <span><span data-i18n="syncDeletes"></span> <small data-i18n="syncDeletesHint"></small></span>
       </label>
 
+      <label class="switch">
+        <input type="checkbox" name="download_online_only" />
+        <span class="track"></span>
+        <span><span data-i18n="downloadOnline"></span> <small data-i18n="downloadOnlineHint"></small></span>
+      </label>
+
       <details class="advanced">
         <summary data-i18n="advanced"></summary>
         <label class="field">
@@ -111,6 +117,8 @@
     <h2 data-i18n="previewTitle"></h2>
     <p class="muted" data-i18n="previewIntro"></p>
     <div class="preview-stats" id="preview-stats"></div>
+    <div class="preview-dirs" id="preview-dirs"></div>
+    <p class="preview-note" id="preview-online"></p>
     <ul class="preview-list" id="preview-list"></ul>
     <div class="modal-actions">
       <button class="btn ghost" id="btn-preview-back" data-i18n="back"></button>

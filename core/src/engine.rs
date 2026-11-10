@@ -30,12 +30,28 @@ pub struct Meta {
     /// Date de modification en millisecondes Unix.
     pub mtime: i64,
     pub dir: bool,
+    /// Fichier « en ligne uniquement » (contenu non téléchargé par le client cloud).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub online: bool,
 }
 
 impl Meta {
     fn from_fs(m: &fs::Metadata) -> Self {
-        Meta { size: if m.is_dir() { 0 } else { m.len() }, mtime: mtime_ms(m), dir: m.is_dir() }
+        Meta { size: if m.is_dir() { 0 } else { m.len() }, mtime: mtime_ms(m), dir: m.is_dir(), online: !m.is_dir() && is_online_only(m) }
     }
+}
+
+/// Attributs Windows des fichiers cloud non téléchargés :
+/// OFFLINE (0x1000), RECALL_ON_OPEN (0x40000), RECALL_ON_DATA_ACCESS (0x400000).
+#[cfg(windows)]
+fn is_online_only(m: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    m.file_attributes() & (0x1000 | 0x40000 | 0x40_0000) != 0
+}
+
+#[cfg(not(windows))]
+fn is_online_only(_: &fs::Metadata) -> bool {
+    false
 }
 
 fn mtime_ms(m: &fs::Metadata) -> i64 {
@@ -82,6 +98,7 @@ enum Op {
 
 /// Résultat de la planification, avant exécution.
 struct Plan {
+    online_skipped: usize,
     ops: Vec<Op>,
     dir_checks: Vec<(String, Side)>,
     asks: Vec<(String, Meta, Meta)>,
@@ -147,7 +164,8 @@ impl Engine {
     pub fn preview(&self) -> Result<Preview, String> {
         self.check_roots()?;
         let plan = self.plan(None)?;
-        let mut pv = Preview::default();
+        let mut pv = Preview { online_skipped: plan.online_skipped, ..Default::default() };
+        let mut weights: HashMap<&str, (usize, u64)> = HashMap::new();
         let push = |pv: &mut Preview, kind, rel: &str, size| {
             if pv.items.len() < PREVIEW_LIMIT {
                 pv.items.push(PreviewItem { kind, rel: rel.to_string(), size });
@@ -161,6 +179,10 @@ impl Engine {
                     let kind = if *side == Side::Left { PreviewKind::ToRight } else { PreviewKind::ToLeft };
                     if kind == PreviewKind::ToRight { pv.to_right += 1 } else { pv.to_left += 1 }
                     pv.bytes += m.size;
+                    let top = rel.split_once('/').map_or("", |(d, _)| d);
+                    let w = weights.entry(top).or_default();
+                    w.0 += 1;
+                    w.1 += m.size;
                     push(&mut pv, kind, rel, m.size);
                 }
                 Op::Trash(side, rel) => {
@@ -184,13 +206,18 @@ impl Engine {
             pv.conflicts += 1;
             push(&mut pv, PreviewKind::Conflict, rel, 0);
         }
+        let mut top: Vec<DirWeight> =
+            weights.into_iter().map(|(d, (files, bytes))| DirWeight { dir: d.to_string(), files, bytes }).collect();
+        top.sort_unstable_by_key(|d| std::cmp::Reverse(d.bytes));
+        top.truncate(8);
+        pv.top_dirs = top;
         Ok(pv)
     }
 
     /// Synchronise toute la paire (`scope = None`) ou seulement certains chemins relatifs.
     pub fn sync(&mut self, scope: Option<&[String]>, rep: &dyn Reporter) -> Result<Stats, String> {
         self.check_roots()?;
-        let Plan { ops, mut dir_checks, asks } = self.plan(scope)?;
+        let Plan { ops, mut dir_checks, asks, .. } = self.plan(scope)?;
         let id = self.cfg.id.clone();
 
         // Conflits disparus (fichiers redevenus identiques ou supprimés)
@@ -287,8 +314,14 @@ impl Engine {
         let mut ops = Vec::new();
         let mut dir_checks = Vec::new();
         let mut conflicts = Vec::new();
+        let mut online_skipped = 0;
         for rel in keys {
             let (l, r, s) = (left.get(rel), right.get(rel), self.state.get(rel));
+            // Fichier cloud non téléchargé : on n'y touche pas (ni copie, ni suppression, ni historique).
+            if !self.cfg.download_online_only && (l.is_some_and(|m| m.online) || r.is_some_and(|m| m.online)) {
+                online_skipped += 1;
+                continue;
+            }
             match self.cfg.mode {
                 SyncMode::Mirror => plan_mirror(rel, l, r, self.cfg.propagate_deletes, &mut ops),
                 SyncMode::Bidirectional => {
@@ -318,7 +351,7 @@ impl Engine {
         }
 
         detect_moves(&mut ops, [&left, &right]);
-        Ok(Plan { ops, dir_checks, asks })
+        Ok(Plan { online_skipped, ops, dir_checks, asks })
     }
 
     // ---------------------------------------------------------------- scan
