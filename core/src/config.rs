@@ -37,6 +37,9 @@ pub struct PairConfig {
     pub poll_secs: u64,
     /// Nombre d'anciennes versions conservées pour chaque fichier écrasé (0 = aucune).
     pub versions: u32,
+    /// Télécharger les fichiers « en ligne uniquement » (placeholders OneDrive/Nextcloud…) pour les copier.
+    /// Désactivé : ils sont ignorés, sans jamais être supprimés ni écrasés.
+    pub download_online_only: bool,
 }
 
 impl Default for PairConfig {
@@ -53,6 +56,7 @@ impl Default for PairConfig {
             enabled: true,
             poll_secs: 30,
             versions: 0,
+            download_online_only: false,
         }
     }
 }

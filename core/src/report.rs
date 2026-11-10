@@ -97,6 +97,17 @@ pub struct Preview {
     /// Liste détaillée (tronquée à `PREVIEW_LIMIT` éléments).
     pub items: Vec<PreviewItem>,
     pub truncated: bool,
+    /// Dossiers (1er niveau) qui pèsent le plus dans les copies.
+    pub top_dirs: Vec<DirWeight>,
+    /// Fichiers « en ligne uniquement » ignorés.
+    pub online_skipped: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DirWeight {
+    pub dir: String,
+    pub files: usize,
+    pub bytes: u64,
 }
 
 pub const PREVIEW_LIMIT: usize = 500;

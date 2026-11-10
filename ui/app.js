@@ -152,13 +152,14 @@ function openEditor(p) {
   editing = p || null;
   const d = p || {
     name: "", left: "", right: "", mode: "bidirectional", conflict: "newest_with_backup",
-    propagate_deletes: false, excludes: S.default_excludes, poll_secs: 30, versions: 0,
+    propagate_deletes: false, excludes: S.default_excludes, poll_secs: 30, versions: 0, download_online_only: false,
   };
   $("#pair-title").textContent = p ? t("editPairTitle") : t("newPairTitle");
   form.name.value = d.name;
   form.left.value = d.left;
   form.right.value = d.right;
   form.propagate_deletes.checked = d.propagate_deletes;
+  form.download_online_only.checked = !!d.download_online_only;
   form.excludes.value = d.excludes.join("\n");
   form.poll_secs.value = d.poll_secs;
   form.versions.value = d.versions || 0;
@@ -191,6 +192,7 @@ function pairFromForm() {
     mode: segValue("mode"),
     conflict: segValue("conflict"),
     propagate_deletes: form.propagate_deletes.checked,
+    download_online_only: form.download_online_only.checked,
     excludes: form.excludes.value.split("\n").map((s) => s.trim()).filter(Boolean),
     poll_secs: Math.max(2, parseInt(form.poll_secs.value, 10) || 30),
     versions: Math.max(0, Math.min(100, parseInt(form.versions.value, 10) || 0)),
@@ -249,6 +251,13 @@ function showPreview(pv) {
       (pv.moves ? stat(t("pvMoves"), pv.moves) : "") +
       (pv.deletes ? stat(t("pvDeletes"), pv.deletes, "warn") : "") +
       (pv.conflicts ? stat(t("pvConflicts"), pv.conflicts, "warn") : "");
+  const max = Math.max(1, ...(pv.top_dirs || []).map((d) => d.bytes));
+  $("#preview-dirs").innerHTML = (pv.top_dirs || []).length > 1
+    ? `<h3>${t("pvTopDirs")}</h3>` + pv.top_dirs.map((d) => `<div class="pv-dir"><span class="pv-dir-name">${esc(d.dir || t("pvRoot"))}</span>
+        <span class="pv-dir-bar"><span style="width:${((d.bytes / max) * 100).toFixed(1)}%"></span></span>
+        <span class="pv-size">${t("files", d.files)} · ${size(d.bytes)}</span></div>`).join("")
+    : "";
+  $("#preview-online").textContent = pv.online_skipped ? t("pvOnline", pv.online_skipped) : "";
   $("#preview-list").innerHTML =
     pv.items.map((it) => `<li class="pv-${it.kind}"><span class="pv-kind">${PV_ICON[it.kind]}</span><span class="pv-rel">${esc(it.rel)}</span>${it.size ? `<span class="pv-size">${size(it.size)}</span>` : ""}</li>`).join("") +
     (pv.truncated ? `<li class="muted">${t("pvTruncated", pv.items.length)}</li>` : "");
@@ -457,7 +466,8 @@ setInterval(scheduleRender, 15000); // rafraîchit « il y a … »
 async function mockInvoke(cmd) {
   if (cmd === "preview_pair") {
     return {
-      to_right: 1240, to_left: 12, deletes: 0, moves: 3, conflicts: 2, bytes: 5.2e9, truncated: true,
+      to_right: 1240, to_left: 12, deletes: 0, moves: 3, conflicts: 2, bytes: 5.2e9, truncated: true, online_skipped: 37,
+      top_dirs: [{ dir: "Photos", files: 900, bytes: 4.1e9 }, { dir: "Docs", files: 300, bytes: 0.9e9 }, { dir: "", files: 52, bytes: 0.2e9 }],
       items: [
         { kind: "to_right", rel: "vacances/IMG_2041.jpg", size: 4200000 },
         { kind: "to_left", rel: "docs/facture.pdf", size: 120000 },
