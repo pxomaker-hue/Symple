@@ -19,6 +19,18 @@ pub const CLOUD_INTERNALS: &[&str] = &[
     ".tmp.drivedownload",
     ".tmp.driveupload",
     ".~lock.*#",
+    // Resilio Sync / BitTorrent Sync
+    ".sync",
+    ".SyncArchive",
+    ".SyncID",
+    ".SyncIgnore",
+    ".SyncTemp",
+    "*.!sync",
+    // Syncthing
+    ".stfolder",
+    ".stversions",
+    ".stignore",
+    ".syncthing.*.tmp",
 ];
 
 pub struct Filter {
