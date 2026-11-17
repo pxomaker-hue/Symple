@@ -341,6 +341,11 @@ fn set_language(s: State<App>, lang: String) {
 }
 
 #[tauri::command]
+fn clear_logs(s: State<App>) {
+    s.rep.logs.lock().unwrap().clear();
+}
+
+#[tauri::command]
 fn open_folder(app: AppHandle, path: String) -> Result<(), String> {
     app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
@@ -487,7 +492,8 @@ fn main() {
             resolve_conflict,
             set_settings,
             set_language,
-            open_folder,
+            clear_logs,
+        open_folder,
             open_releases
         ])
         .run(tauri::generate_context!())

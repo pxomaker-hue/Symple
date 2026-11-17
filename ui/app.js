@@ -404,6 +404,7 @@ $("#btn-sync-all").onclick = async () => {
   toast(t("syncAllStarted"));
 };
 $("#btn-clear-log").onclick = () => {
+  invoke("clear_logs").catch(() => {});
   S.logs = [];
   renderLogs();
 };
