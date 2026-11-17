@@ -15,6 +15,7 @@ Synchronisation de dossiers **en temps réel**, légère et rapide (Tauri 2 + Ru
 - **Exclusions** par motifs (`*.tmp`, `Thumbs.db`, `node_modules`, `cache/*`…).
 - Copie **atomique** (fichier temporaire puis renommage), date d'origine conservée, copies parallèles.
 - Sécurité : si un dossier devient inaccessible ou vide d'un coup (NAS débranché), la synchro est suspendue au lieu de tout supprimer.
+- Garde-fou réglable par paire : au-delà d'un pourcentage de fichiers à supprimer d'un coup (50 % par défaut, 0 = désactivé), la synchro est suspendue.
 - Icône dans la barre des tâches, lancement au démarrage, démarrage réduit. Fermer la fenêtre laisse Symple tourner en arrière-plan.
 
 ## Télécharger

@@ -232,3 +232,21 @@ fn cancelled_sync_does_nothing() {
     e.sync(None, &Rec::default()).unwrap();
     assert!(t.path().join("R").join("a.txt").exists());
 }
+
+#[test]
+fn mass_delete_guard() {
+    let (t, mut e) = setup(SyncMode::Bidirectional, true, ConflictPolicy::Newest);
+    let (l, r) = (t.path().join("L"), t.path().join("R"));
+    for i in 0..40 {
+        write(&l.join(format!("f{i}.txt")), "x", 5000);
+    }
+    e.sync(None, &Rec::default()).unwrap();
+    for i in 0..30 {
+        fs::remove_file(r.join(format!("f{i}.txt"))).unwrap();
+    }
+    assert!(e.sync(None, &Rec::default()).is_err(), "75 % > 50 % : suspendu");
+    assert!(l.join("f0.txt").exists());
+    e.cfg.max_delete_pct = 0;
+    e.sync(None, &Rec::default()).unwrap();
+    assert!(!l.join("f0.txt").exists(), "garde-fou désactivé : suppressions propagées");
+}

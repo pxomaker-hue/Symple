@@ -152,7 +152,7 @@ function openEditor(p) {
   editing = p || null;
   const d = p || {
     name: "", left: "", right: "", mode: "bidirectional", conflict: "newest_with_backup",
-    propagate_deletes: false, excludes: S.default_excludes, poll_secs: 30, versions: 0, download_online_only: false,
+    propagate_deletes: false, excludes: S.default_excludes, poll_secs: 30, versions: 0, download_online_only: false, max_delete_pct: 50,
   };
   $("#pair-title").textContent = p ? t("editPairTitle") : t("newPairTitle");
   form.name.value = d.name;
@@ -163,6 +163,7 @@ function openEditor(p) {
   form.excludes.value = d.excludes.join("\n");
   form.poll_secs.value = d.poll_secs;
   form.versions.value = d.versions || 0;
+  form.max_delete_pct.value = d.max_delete_pct ?? 50;
   setSeg("mode", d.mode);
   setSeg("conflict", d.conflict);
   $("#pair-error").textContent = "";
@@ -196,6 +197,7 @@ function pairFromForm() {
     excludes: form.excludes.value.split("\n").map((s) => s.trim()).filter(Boolean),
     poll_secs: Math.max(2, parseInt(form.poll_secs.value, 10) || 30),
     versions: Math.max(0, Math.min(100, parseInt(form.versions.value, 10) || 0)),
+    max_delete_pct: Math.max(0, Math.min(100, parseInt(form.max_delete_pct.value, 10) || 0)),
     enabled: editing ? editing.enabled : true,
   };
   if (!pair.name) pair.name = `${baseName(pair.left)} ${pair.mode === "mirror" ? "→" : "⇄"} ${baseName(pair.right)}`;

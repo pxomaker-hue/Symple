@@ -1,8 +1,8 @@
 //! Moteur de synchronisation : scan, comparaison, copie, corbeille, conflits.
 
-use crate::config::{ConflictPolicy, PairConfig, SyncMode};
+use crate::config::{ConflictPolicy, PairConfig, SyncMode, MASS_DELETE_MIN};
 use crate::filter::Filter;
-use crate::platform::{is_network, join, long_path};
+use crate::platform::{coarse_mtime, is_network, join, long_path};
 use crate::report::*;
 use crate::tr;
 use rayon::prelude::*;
@@ -64,7 +64,12 @@ fn mtime_ms(m: &fs::Metadata) -> i64 {
 }
 
 pub fn same(a: &Meta, b: &Meta) -> bool {
-    a.dir == b.dir && (a.dir || (a.size == b.size && (a.mtime - b.mtime).abs() <= MTIME_TOLERANCE_MS))
+    same_tol(a, b, MTIME_TOLERANCE_MS)
+}
+
+/// `tol` : tolérance sur la date en ms (2 s pour FAT/réseau, 0 entre disques précis comme NTFS).
+pub fn same_tol(a: &Meta, b: &Meta, tol: i64) -> bool {
+    a.dir == b.dir && (a.dir || (a.size == b.size && (a.mtime - b.mtime).abs() <= tol))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -110,6 +115,8 @@ pub struct Engine {
     filter: Filter,
     roots: [PathBuf; 2],
     network: [bool; 2],
+    /// Tolérance de comparaison des dates pour cette paire.
+    tol: i64,
     state: Tree,
     dirty: bool,
     state_path: PathBuf,
@@ -129,6 +136,7 @@ impl Engine {
             filter: Filter::new(&cfg.excludes),
             roots: [long_path(&cfg.left), long_path(&cfg.right)],
             network: [is_network(&cfg.left), is_network(&cfg.right)],
+            tol: if coarse_mtime(&cfg.left) || coarse_mtime(&cfg.right) { MTIME_TOLERANCE_MS } else { 0 },
             cfg,
             state,
             dirty: false,
@@ -345,10 +353,18 @@ impl Engine {
                 continue;
             }
             match self.cfg.mode {
-                SyncMode::Mirror => plan_mirror(rel, l, r, self.cfg.propagate_deletes, &mut ops),
-                SyncMode::Bidirectional => {
-                    plan_bidir(rel, l, r, s, self.cfg.propagate_deletes, &mut ops, &mut dir_checks, &mut conflicts)
-                }
+                SyncMode::Mirror => plan_mirror(rel, l, r, self.cfg.propagate_deletes, self.tol, &mut ops),
+                SyncMode::Bidirectional => plan_bidir(
+                    rel,
+                    l,
+                    r,
+                    s,
+                    self.cfg.propagate_deletes,
+                    self.tol,
+                    &mut ops,
+                    &mut dir_checks,
+                    &mut conflicts,
+                ),
             }
         }
 
@@ -372,7 +388,23 @@ impl Engine {
             ops.push(Op::Copy(win, rel, if win == Side::Left { l } else { r }));
         }
 
-        detect_moves(&mut ops, [&left, &right]);
+        detect_moves(&mut ops, [&left, &right], self.tol);
+
+        // Garde-fou réglable : trop de suppressions d'un coup = probablement un dossier démonté.
+        let pct = self.cfg.max_delete_pct;
+        if scope.is_none() && pct > 0 && pct < 100 {
+            let deletes = ops.iter().filter(|o| matches!(o, Op::Trash(..))).count();
+            let tracked = self.state.values().filter(|m| !m.dir).count().max(1);
+            if deletes >= MASS_DELETE_MIN && deletes * 100 > tracked * pct as usize {
+                return Err(tr!(
+                    "{} suppressions prévues ({} % des fichiers, limite {} %) : synchro suspendue par sécurité. Vérifie les dossiers, ou relève la limite dans les options avancées de la paire.",
+                    "{} deletions planned ({}% of files, limit {}%): sync paused for safety. Check the folders, or raise the limit in the pair's advanced options.",
+                    deletes,
+                    deletes * 100 / tracked,
+                    pct
+                ));
+            }
+        }
         Ok(Plan { online_skipped, ops, dir_checks, asks })
     }
 
@@ -671,9 +703,9 @@ fn newer_left(l: &Meta, r: &Meta) -> bool {
     l.mtime > r.mtime || (l.mtime == r.mtime && l.size >= r.size)
 }
 
-fn plan_mirror(rel: &str, l: Option<&Meta>, r: Option<&Meta>, del: bool, ops: &mut Vec<Op>) {
+fn plan_mirror(rel: &str, l: Option<&Meta>, r: Option<&Meta>, del: bool, tol: i64, ops: &mut Vec<Op>) {
     match (l, r) {
-        (Some(l), Some(r)) if same(l, r) => ops.push(Op::Record(rel.into(), *l)),
+        (Some(l), Some(r)) if same_tol(l, r, tol) => ops.push(Op::Record(rel.into(), *l)),
         (Some(l), _) => ops.push(Op::Copy(Side::Left, rel.into(), *l)),
         (None, Some(_)) if del => ops.push(Op::Trash(Side::Right, rel.into())),
         _ => ops.push(Op::Forget(rel.into())),
@@ -687,15 +719,16 @@ fn plan_bidir(
     r: Option<&Meta>,
     s: Option<&Meta>,
     del: bool,
+    tol: i64,
     ops: &mut Vec<Op>,
     dir_checks: &mut Vec<(String, Side)>,
     conflicts: &mut Vec<(String, Meta, Meta, bool)>,
 ) {
-    let changed = |x: &Meta| s.is_none_or(|s| !same(x, s));
+    let changed = |x: &Meta| s.is_none_or(|s| !same_tol(x, s, tol));
     match (l, r) {
         (None, None) => ops.push(Op::Forget(rel.into())),
         (Some(l), Some(r)) => {
-            if same(l, r) {
+            if same_tol(l, r, tol) {
                 ops.push(Op::Record(rel.into(), *l));
             } else if l.dir || r.dir {
                 if l.dir && r.dir {
@@ -730,7 +763,7 @@ fn plan_bidir(
 
 /// Un fichier supprimé d'un côté et un fichier identique (taille + date) apparu ailleurs
 /// = renommage ou déplacement : on renomme de l'autre côté au lieu de recopier.
-fn detect_moves(ops: &mut Vec<Op>, trees: [&Tree; 2]) {
+fn detect_moves(ops: &mut Vec<Op>, trees: [&Tree; 2], tol: i64) {
     let mut trash_by_size: HashMap<(Side, u64), Vec<usize>> = HashMap::new();
     for (i, op) in ops.iter().enumerate() {
         if let Op::Trash(side, rel) = op {
@@ -752,7 +785,7 @@ fn detect_moves(ops: &mut Vec<Op>, trees: [&Tree; 2]) {
         }
         let Some(cands) = trash_by_size.get_mut(&(target, m.size)) else { continue };
         let found = cands.iter().position(|&j| match &ops[j] {
-            Op::Trash(_, from) => trees[target.idx()].get(from).is_some_and(|fm| same(fm, m)),
+            Op::Trash(_, from) => trees[target.idx()].get(from).is_some_and(|fm| same_tol(fm, m, tol)),
             _ => false,
         });
         if let Some(pos) = found {
