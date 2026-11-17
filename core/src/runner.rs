@@ -109,6 +109,7 @@ impl Worker {
             last_sync: None,
             files: 0,
             conflicts: 0,
+            conflict_rels: Vec::new(),
             watching: false,
             error: None,
         };
@@ -153,7 +154,7 @@ impl Worker {
                     if let Err(e) = self.engine.resolve(&rel, choice, &*self.rep) {
                         self.rep.log(&self.engine.cfg.id, Level::Error, e);
                     }
-                    self.status.conflicts = self.engine.pending_conflicts().len();
+                    self.refresh_conflicts();
                     self.rep.status(&self.status);
                 }
                 Cmd::Changed(paths) => {
@@ -243,8 +244,13 @@ impl Worker {
                 self.status.watching = false;
             }
         }
-        self.status.conflicts = self.engine.pending_conflicts().len();
+        self.refresh_conflicts();
         self.rep.status(&self.status);
+    }
+
+    fn refresh_conflicts(&mut self) {
+        self.status.conflict_rels = self.engine.pending_conflicts().into_iter().map(|c| c.rel).collect();
+        self.status.conflicts = self.status.conflict_rels.len();
     }
 
     /// Avec une surveillance temps réel fiable (disques locaux), le scan complet n'est plus

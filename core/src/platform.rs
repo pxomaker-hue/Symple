@@ -40,6 +40,45 @@ pub fn long_path(p: &Path) -> PathBuf {
     }
 }
 
+/// Décalage de l'heure locale par rapport à UTC, en secondes (heure d'été comprise).
+pub fn local_offset_secs() -> i64 {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::GetLocalTime;
+        // SAFETY : SYSTEMTIME est une simple structure d'entiers remplie par Windows.
+        let st = unsafe {
+            let mut st = std::mem::zeroed();
+            GetLocalTime(&mut st);
+            st
+        };
+        let local = days_from_civil(st.wYear as i64, st.wMonth as i64, st.wDay as i64) * 86400
+            + st.wHour as i64 * 3600
+            + st.wMinute as i64 * 60
+            + st.wSecond as i64;
+        let utc = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        // Arrondi au quart d'heure (les fuseaux sont des multiples de 15 min).
+        ((local - utc) as f64 / 900.0).round() as i64 * 900
+    }
+    #[cfg(not(windows))]
+    {
+        0
+    }
+}
+
+/// Jours depuis 1970-01-01 (algorithme de H. Hinnant).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
 /// Dates de modification imprécises : réseau (SMB arrondit), FAT/exFAT (2 s), ou système inconnu.
 /// Seuls les disques locaux NTFS/ReFS permettent une comparaison exacte.
 pub fn coarse_mtime(p: &Path) -> bool {
@@ -95,4 +134,14 @@ pub fn is_network(p: &Path) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn days_from_civil() {
+        assert_eq!(super::days_from_civil(1970, 1, 1), 0);
+        assert_eq!(super::days_from_civil(2000, 3, 1), 11_017);
+        assert_eq!(super::days_from_civil(2026, 11, 17), 20_774);
+    }
 }

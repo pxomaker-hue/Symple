@@ -57,4 +57,3 @@ jobs:
             dist/*.exe
             target/release/symple.exe
             target/release/bundle/nsis/*.exe
-            target/release/bundle/msi/*.msi

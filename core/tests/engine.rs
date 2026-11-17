@@ -250,3 +250,23 @@ fn mass_delete_guard() {
     e.sync(None, &Rec::default()).unwrap();
     assert!(!l.join("f0.txt").exists(), "garde-fou désactivé : suppressions propagées");
 }
+
+#[test]
+fn purge_old_trash_and_versions() {
+    let (t, mut e) = setup(SyncMode::Bidirectional, false, ConflictPolicy::Newest);
+    let l = t.path().join("L");
+    let old_trash = l.join(".symple-trash").join("2000-01-01");
+    let new_trash = l.join(".symple-trash").join("2999-01-01");
+    let vdir = l.join(".symple-versions").join("sub");
+    for d in [&old_trash, &new_trash, &vdir] {
+        fs::create_dir_all(d).unwrap();
+    }
+    fs::write(old_trash.join("x.txt"), "x").unwrap();
+    fs::write(vdir.join("a (2000-01-01 10h00m00).txt"), "v").unwrap();
+    fs::write(vdir.join("a (2999-01-01 10h00m00).txt"), "v").unwrap();
+    e.sync(None, &Rec::default()).unwrap();
+    assert!(!old_trash.exists());
+    assert!(new_trash.exists());
+    assert!(!vdir.join("a (2000-01-01 10h00m00).txt").exists());
+    assert!(vdir.join("a (2999-01-01 10h00m00).txt").exists());
+}

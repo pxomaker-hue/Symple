@@ -108,9 +108,11 @@ impl Reporter for UiReporter {
     }
 
     fn status(&self, status: &PairStatus) {
-        if status.conflicts == 0 {
-            self.conflicts.lock().unwrap().retain(|c| c.pair_id != status.pair_id);
-        }
+        // Retire les conflits disparus (fichiers redevenus identiques, supprimés…).
+        self.conflicts
+            .lock()
+            .unwrap()
+            .retain(|c| c.pair_id != status.pair_id || status.conflict_rels.contains(&c.rel));
         let prev = self.statuses.lock().unwrap().insert(status.pair_id.clone(), status.clone());
         let _ = self.app.emit("status", status);
         // Notification à l'apparition d'une erreur (pas à chaque passage).
@@ -360,7 +362,19 @@ fn validate(p: &PairConfig) -> Result<(), String> {
     if l.as_os_str().is_empty() || r.as_os_str().is_empty() {
         return Err(tr!("Choisis les deux dossiers.", "Pick both folders."));
     }
-    let norm = |x: &Path| fs::canonicalize(x).unwrap_or_else(|_| x.to_path_buf());
+    // Chemin absolu sans préfixe \\?\, et en minuscules sous Windows (insensible à la casse),
+    // que le dossier existe déjà ou non.
+    let norm = |x: &Path| {
+        let p = fs::canonicalize(x).unwrap_or_else(|_| x.to_path_buf());
+        let s = p.to_string_lossy().into_owned();
+        let s = if cfg!(windows) { s.replace('/', "\\") } else { s };
+        let s = match s.strip_prefix(r"\\?\UNC\") {
+            Some(unc) => format!(r"\\{unc}"),
+            None => s.strip_prefix(r"\\?\").unwrap_or(&s).to_string(),
+        };
+        let s = if cfg!(windows) { s.to_lowercase() } else { s };
+        PathBuf::from(s.trim_end_matches('\\').to_string())
+    };
     let (nl, nr) = (norm(l), norm(r));
     if nl == nr || nl.starts_with(&nr) || nr.starts_with(&nl) {
         return Err(tr!(
