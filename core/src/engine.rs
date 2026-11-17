@@ -11,7 +11,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Tolérance de comparaison des dates (FAT/SMB arrondissent à 2 s).
@@ -113,6 +114,8 @@ pub struct Engine {
     dirty: bool,
     state_path: PathBuf,
     pending: HashMap<String, Conflict>,
+    /// Mis à `true` pour interrompre la synchro en cours (pause, arrêt).
+    pub cancel: Arc<AtomicBool>,
 }
 
 impl Engine {
@@ -131,6 +134,7 @@ impl Engine {
             dirty: false,
             state_path,
             pending: HashMap::new(),
+            cancel: Arc::default(),
         }
     }
 
@@ -140,6 +144,15 @@ impl Engine {
 
     fn path(&self, side: Side, rel: &str) -> PathBuf {
         join(self.root(side), rel)
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+
+    /// Au moins un des deux dossiers est sur le réseau (surveillance temps réel peu fiable).
+    pub fn has_network(&self) -> bool {
+        self.network[0] || self.network[1]
     }
 
     pub fn is_ignored(&self, rel: &str) -> bool {
@@ -217,7 +230,12 @@ impl Engine {
     /// Synchronise toute la paire (`scope = None`) ou seulement certains chemins relatifs.
     pub fn sync(&mut self, scope: Option<&[String]>, rep: &dyn Reporter) -> Result<Stats, String> {
         self.check_roots()?;
-        let Plan { ops, mut dir_checks, asks, .. } = self.plan(scope)?;
+        let plan = self.plan(scope);
+        // Scan interrompu : on ne fait rien (un scan partiel ferait croire à des suppressions).
+        if self.cancelled() {
+            return Ok(Stats { cancelled: true, ..Default::default() });
+        }
+        let Plan { ops, mut dir_checks, asks, .. } = plan?;
         let id = self.cfg.id.clone();
 
         // Conflits disparus (fichiers redevenus identiques ou supprimés)
@@ -234,6 +252,10 @@ impl Engine {
         }
 
         self.execute(ops, &mut stats, rep);
+        if self.cancelled() {
+            stats.cancelled = true;
+            dir_checks.clear();
+        }
 
         // Dossiers supprimés d'un côté : on les met à la corbeille de l'autre côté s'ils sont vides.
         dir_checks.sort_by_key(|d| std::cmp::Reverse(d.0.len()));
@@ -387,6 +409,9 @@ impl Engine {
     fn walk(&self, side: Side, start: &str, out: &mut Tree) {
         let mut stack = vec![start.to_string()];
         while let Some(rel) = stack.pop() {
+            if self.cancelled() {
+                return;
+            }
             let Ok(rd) = fs::read_dir(self.path(side, &rel)) else { continue };
             for e in rd.flatten() {
                 let name = e.file_name().to_string_lossy().into_owned();
@@ -439,6 +464,9 @@ impl Engine {
 
         // Renommages / déplacements : simple renommage de l'autre côté, sans recopie.
         for (side, from, to, m) in moves {
+            if self.cancelled() {
+                break;
+            }
             let (src, dst) = (self.path(side, &from), self.path(side, &to));
             let res = dst.parent().map_or(Ok(()), fs::create_dir_all).and_then(|_| {
                 if dst.exists() { Err(io::Error::from(io::ErrorKind::AlreadyExists)) } else { fs::rename(&src, &dst) }
@@ -461,6 +489,9 @@ impl Engine {
         // Dossiers d'abord (dans l'ordre), puis fichiers en parallèle.
         let (dirs, files): (Vec<_>, Vec<_>) = copies.into_iter().partition(|c| c.2.dir);
         for (side, rel, m) in dirs {
+            if self.cancelled() {
+                break;
+            }
             match fs::create_dir_all(self.path(side.other(), &rel)) {
                 Ok(()) => self.set_state(rel, m),
                 Err(e) => self.err(rep, stats, tr!("Création de {} : {}", "Creating {}: {}", rel, e)),
@@ -473,9 +504,12 @@ impl Engine {
         let results: Vec<_> = files
             .into_par_iter()
             .map(|(side, rel, m)| {
+                if this.cancelled() {
+                    return (side, rel, m, Err(io::ErrorKind::Interrupted.into()));
+                }
                 let (src, dst) = (this.path(side, &rel), this.path(side.other(), &rel));
                 let keep = (versions > 0).then(|| (this.root(side.other()), rel.as_str(), versions));
-                let res = copy_file(&src, &dst, &m, keep, &|n| progress.add_bytes(n, rep));
+                let res = copy_file(&src, &dst, &m, keep, &this.cancel, &|n| progress.add_bytes(n, rep));
                 progress.file_done(rep);
                 (side, rel, m, res)
             })
@@ -490,11 +524,16 @@ impl Engine {
                     self.log(rep, Level::Info, format!("{arrow} {rel}"));
                     self.set_state(rel, m);
                 }
+                // Annulé, ou fichier en cours d'écriture : réessayé au prochain passage, sans erreur.
+                Err(e) if matches!(e.kind(), io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock) => {}
                 Err(e) => self.err(rep, stats, tr!("Copie de {} : {}", "Copying {}: {}", rel, e)),
             }
         }
 
         for (side, rel) in trashes {
+            if self.cancelled() {
+                break;
+            }
             match self.trash(side, &rel) {
                 Ok(()) => {
                     stats.deleted += 1;
@@ -548,7 +587,7 @@ impl Engine {
         }
         if let Ok(b) = serde_json::to_vec(&self.state) {
             let tmp = self.state_path.with_extension("tmp");
-            if fs::write(&tmp, b).is_ok() && fs::rename(tmp, &self.state_path).is_ok() {
+            if write_durable(&tmp, &b).is_ok() && fs::rename(tmp, &self.state_path).is_ok() {
                 self.dirty = false;
             }
         }
@@ -737,7 +776,14 @@ fn detect_moves(ops: &mut Vec<Op>, trees: [&Tree; 2]) {
 
 /// Copie atomique : fichier temporaire, date conservée, puis renommage.
 /// `keep` : (racine de destination, chemin relatif, nb de versions) pour archiver l'ancienne version.
-fn copy_file(src: &Path, dst: &Path, m: &Meta, keep: Option<(&Path, &str, u32)>, progress: &dyn Fn(u64)) -> io::Result<()> {
+fn copy_file(
+    src: &Path,
+    dst: &Path,
+    m: &Meta,
+    keep: Option<(&Path, &str, u32)>,
+    cancel: &AtomicBool,
+    progress: &dyn Fn(u64),
+) -> io::Result<()> {
     if let Some(p) = dst.parent() {
         fs::create_dir_all(p)?;
     }
@@ -749,6 +795,9 @@ fn copy_file(src: &Path, dst: &Path, m: &Meta, keep: Option<(&Path, &str, u32)>,
             let mut w = fs::File::create(&tmp)?;
             let mut buf = vec![0u8; CHUNK];
             loop {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
                 let n = r.read(&mut buf)?;
                 if n == 0 {
                     break;
@@ -757,19 +806,20 @@ fn copy_file(src: &Path, dst: &Path, m: &Meta, keep: Option<(&Path, &str, u32)>,
                 progress(n as u64);
             }
             w.flush()?;
+            drop(w);
         } else {
             fs::copy(src, &tmp)?;
             progress(m.size);
         }
         let ft = filetime::FileTime::from_unix_time(m.mtime.div_euclid(1000), (m.mtime.rem_euclid(1000) * 1_000_000) as u32);
         filetime::set_file_mtime(&tmp, ft)?;
-        // Le fichier source a-t-il bougé pendant la copie ? On réessaiera plus tard.
+        // Contenu écrit sur le disque avant le renommage : une coupure de courant
+        // ne doit jamais remplacer la bonne version par un fichier vide.
+        fs::OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
+        // Le fichier source a-t-il bougé pendant la copie ? On réessaiera plus tard (sans erreur).
         let now = Meta::from_fs(&fs::metadata(src)?);
         if !same(&now, m) {
-            return Err(io::Error::other(tr!(
-                "fichier en cours d'écriture, nouvel essai au prochain passage",
-                "file is being written, will retry on next pass"
-            )));
+            return Err(io::ErrorKind::WouldBlock.into());
         }
         if let Ok(md) = fs::metadata(dst) {
             let mut p = md.permissions();
@@ -788,6 +838,13 @@ fn copy_file(src: &Path, dst: &Path, m: &Meta, keep: Option<(&Path, &str, u32)>,
         let _ = fs::remove_file(&tmp);
     }
     res
+}
+
+/// Écrit un fichier et attend qu'il soit sur le disque.
+pub fn write_durable(p: &Path, data: &[u8]) -> io::Result<()> {
+    let mut f = fs::File::create(p)?;
+    f.write_all(data)?;
+    f.sync_all()
 }
 
 /// Déplace l'ancienne version dans `.symple-versions/` et ne garde que les `n` plus récentes.

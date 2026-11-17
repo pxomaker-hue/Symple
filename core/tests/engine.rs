@@ -219,3 +219,16 @@ fn cloud_internals_ignored_and_top_dirs() {
     assert!(!r.join(".stfolder").exists());
     assert!(r.join("Photos/a.jpg").exists());
 }
+
+#[test]
+fn cancelled_sync_does_nothing() {
+    let (t, mut e) = setup(SyncMode::Bidirectional, false, ConflictPolicy::Newest);
+    write(&t.path().join("L").join("a.txt"), "x", 5000);
+    e.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    let st = e.sync(None, &Rec::default()).unwrap();
+    assert!(st.cancelled);
+    assert!(!t.path().join("R").join("a.txt").exists());
+    e.cancel.store(false, std::sync::atomic::Ordering::Relaxed);
+    e.sync(None, &Rec::default()).unwrap();
+    assert!(t.path().join("R").join("a.txt").exists());
+}

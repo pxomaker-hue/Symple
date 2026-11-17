@@ -8,6 +8,7 @@ use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -26,25 +27,49 @@ pub struct PairRunner {
     pub id: String,
     tx: Sender<Cmd>,
     handle: Option<JoinHandle<()>>,
+    cancel: Arc<AtomicBool>,
 }
 
 impl PairRunner {
     pub fn start(cfg: PairConfig, state_dir: PathBuf, rep: Arc<dyn Reporter>) -> Self {
+        Self::start_after(cfg, state_dir, rep, None)
+    }
+
+    /// Démarre une paire en attendant, dans son propre thread, que `prev` soit arrêté
+    /// (jamais de blocage du thread appelant, ni deux moteurs en même temps sur le même historique).
+    pub fn start_after(cfg: PairConfig, state_dir: PathBuf, rep: Arc<dyn Reporter>, prev: Option<PairRunner>) -> Self {
         let (tx, rx) = unbounded();
         let id = cfg.id.clone();
         let wtx = tx.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let wcancel = cancel.clone();
         let handle = std::thread::Builder::new()
             .name(format!("symple-{id}"))
-            .spawn(move || Worker::new(cfg, &state_dir, rep, wtx).run(rx))
+            .spawn(move || {
+                drop(prev);
+                Worker::new(cfg, &state_dir, rep, wtx, wcancel).run(rx)
+            })
             .ok();
-        PairRunner { id, tx, handle }
+        PairRunner { id, tx, handle, cancel }
+    }
+
+    /// Demande l'arrêt sans attendre (l'interface ne doit jamais rester bloquée par une synchro).
+    /// Le thread de fond se termine seul dès que la copie en cours est interrompue.
+    pub fn shutdown(mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        let _ = self.tx.send(Cmd::Stop);
+        self.handle.take();
     }
 
     pub fn sync_now(&self) {
         let _ = self.tx.send(Cmd::Full);
     }
 
+    /// Mettre en pause interrompt aussi la synchro en cours.
     pub fn set_paused(&self, paused: bool) {
+        if paused {
+            self.cancel.store(true, Ordering::Relaxed);
+        }
         let _ = self.tx.send(Cmd::Pause(paused));
     }
 
@@ -55,6 +80,7 @@ impl PairRunner {
 
 impl Drop for PairRunner {
     fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
         let _ = self.tx.send(Cmd::Stop);
         if let Some(h) = self.handle.take() {
             let _ = h.join();
@@ -74,7 +100,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(cfg: PairConfig, state_dir: &Path, rep: Arc<dyn Reporter>, tx: Sender<Cmd>) -> Self {
+    fn new(cfg: PairConfig, state_dir: &Path, rep: Arc<dyn Reporter>, tx: Sender<Cmd>, cancel: Arc<AtomicBool>) -> Self {
         let paused = !cfg.enabled;
         let poll = Duration::from_secs(cfg.poll_secs.max(2));
         let status = PairStatus {
@@ -86,7 +112,9 @@ impl Worker {
             watching: false,
             error: None,
         };
-        Worker { engine: Engine::new(cfg, state_dir), rep, tx, watcher: None, status, paused, poll, backlog: VecDeque::new() }
+        let mut engine = Engine::new(cfg, state_dir);
+        engine.cancel = cancel;
+        Worker { engine, rep, tx, watcher: None, status, paused, poll, backlog: VecDeque::new() }
     }
 
     fn run(mut self, rx: Receiver<Cmd>) {
@@ -99,7 +127,7 @@ impl Worker {
             }
             let cmd = match self.backlog.pop_front() {
                 Some(c) => c,
-                None => match rx.recv_timeout(self.poll) {
+                None => match rx.recv_timeout(self.poll_interval()) {
                     Ok(c) => c,
                     Err(RecvTimeoutError::Timeout) => Cmd::Full,
                     Err(RecvTimeoutError::Disconnected) => return,
@@ -110,6 +138,8 @@ impl Worker {
                 Cmd::Full => need_full = true,
                 Cmd::Pause(p) => {
                     self.paused = p;
+                    // La demande d'interruption est traitée : on repart à zéro.
+                    self.engine.cancel.store(false, Ordering::Relaxed);
                     if p {
                         self.watcher = None;
                         self.status.watching = false;
@@ -178,6 +208,10 @@ impl Worker {
         self.status.state = State::Syncing;
         self.rep.status(&self.status);
         match self.engine.sync(scope, &*self.rep) {
+            Ok(stats) if stats.cancelled => {
+                // Interrompue (pause ou arrêt) : l'état est mis à jour par la commande qui suit.
+                self.status.state = if self.paused { State::Paused } else { State::Idle };
+            }
             Ok(stats) => {
                 self.status.state = State::Idle;
                 self.status.error = None;
@@ -211,6 +245,16 @@ impl Worker {
         }
         self.status.conflicts = self.engine.pending_conflicts().len();
         self.rep.status(&self.status);
+    }
+
+    /// Avec une surveillance temps réel fiable (disques locaux), le scan complet n'est plus
+    /// qu'un filet de sécurité toutes les 5 min. Sur réseau (NAS/SMB), on garde l'intervalle choisi.
+    fn poll_interval(&self) -> Duration {
+        if self.watcher.is_some() && !self.engine.has_network() {
+            self.poll.max(Duration::from_secs(300))
+        } else {
+            self.poll
+        }
     }
 
     fn make_watcher(&self) -> Option<RecommendedWatcher> {

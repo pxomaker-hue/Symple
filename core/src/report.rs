@@ -34,6 +34,8 @@ pub struct Stats {
     pub conflicts: usize,
     pub errors: usize,
     pub bytes: u64,
+    /// Synchro interrompue (pause, arrêt) : seules les opérations terminées sont enregistrées.
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
