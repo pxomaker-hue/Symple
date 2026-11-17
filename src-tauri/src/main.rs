@@ -177,16 +177,17 @@ impl App {
         fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_vec_pretty(&*cfg).map_err(|e| e.to_string())?;
         let tmp = self.dir.join("config.tmp");
-        fs::write(&tmp, json).map_err(|e| e.to_string())?;
+        symple_core::engine::write_durable(&tmp, &json).map_err(|e| e.to_string())?;
         fs::rename(tmp, self.dir.join("config.json")).map_err(|e| e.to_string())
     }
 
     fn start(&self, pair: &PairConfig) {
         self.rep.names.lock().unwrap().insert(pair.id.clone(), pair.name.clone());
         let mut runners = self.runners.lock().unwrap();
-        runners.remove(&pair.id); // arrête l'ancien
+        // L'ancien est interrompu ; le nouveau l'attend dans son propre thread (aucun blocage de l'interface).
+        let prev = runners.remove(&pair.id);
         let rep: Arc<dyn Reporter> = self.rep.clone();
-        runners.insert(pair.id.clone(), PairRunner::start(pair.clone(), self.dir.join("state"), rep));
+        runners.insert(pair.id.clone(), PairRunner::start_after(pair.clone(), self.dir.join("state"), rep, prev));
     }
 
     fn relabel_menu(&self) {
@@ -266,12 +267,17 @@ fn save_pair(s: State<App>, mut pair: PairConfig) -> Result<PairConfig, String> 
 
 #[tauri::command]
 fn delete_pair(s: State<App>, id: String) -> Result<(), String> {
-    s.runners.lock().unwrap().remove(&id);
+    let old = s.runners.lock().unwrap().remove(&id);
     s.config.lock().unwrap().pairs.retain(|p| p.id != id);
     s.rep.statuses.lock().unwrap().remove(&id);
     s.rep.conflicts.lock().unwrap().retain(|c| c.pair_id != id);
     s.rep.update_tray();
-    let _ = fs::remove_file(s.dir.join("state").join(format!("{id}.json")));
+    // On attend l'arrêt de la synchro en arrière-plan avant d'effacer son historique.
+    let state_file = s.dir.join("state").join(format!("{id}.json"));
+    std::thread::spawn(move || {
+        drop(old);
+        let _ = fs::remove_file(state_file);
+    });
     s.save()
 }
 
@@ -335,6 +341,11 @@ fn set_language(s: State<App>, lang: String) {
 }
 
 #[tauri::command]
+fn clear_logs(s: State<App>) {
+    s.rep.logs.lock().unwrap().clear();
+}
+
+#[tauri::command]
 fn open_folder(app: AppHandle, path: String) -> Result<(), String> {
     app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
@@ -384,10 +395,16 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let dir = app.path().app_config_dir()?;
-            let config: Config = fs::read(dir.join("config.json"))
-                .ok()
-                .and_then(|b| serde_json::from_slice(&b).ok())
-                .unwrap_or_default();
+            let mut corrupt = None;
+            let config: Config = match fs::read(dir.join("config.json")) {
+                Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|_| {
+                    // Config illisible : on la garde de côté au lieu de l'écraser au prochain enregistrement.
+                    let bad = dir.join(format!("config.corrompu-{}.json", now_ms()));
+                    corrupt = fs::rename(dir.join("config.json"), &bad).ok().map(|_| bad);
+                    Config::default()
+                }),
+                Err(_) => Config::default(),
+            };
             if config.language == "en" {
                 i18n::set_english(true);
             }
@@ -400,6 +417,17 @@ fn main() {
                 names: Mutex::default(),
                 tray: Mutex::default(),
             });
+            if let Some(bad) = corrupt {
+                rep.log(
+                    "",
+                    Level::Error,
+                    tr!(
+                        "Configuration illisible : elle a été conservée dans {}",
+                        "Unreadable configuration: kept as {}",
+                        bad.display()
+                    ),
+                );
+            }
             let state = App { dir, config: Mutex::new(config), runners: Mutex::default(), rep, menu: Mutex::default() };
 
             // Icône de la barre des tâches
@@ -420,7 +448,11 @@ fn main() {
                         }
                     }
                     "quit" => {
-                        app.state::<App>().runners.lock().unwrap().clear();
+                        // Interrompt les copies en cours sans attendre (pas de blocage possible).
+                        let runners: Vec<_> = app.state::<App>().runners.lock().unwrap().drain().collect();
+                        for (_, r) in runners {
+                            r.shutdown();
+                        }
                         app.exit(0);
                     }
                     _ => {}
@@ -460,7 +492,8 @@ fn main() {
             resolve_conflict,
             set_settings,
             set_language,
-            open_folder,
+            clear_logs,
+        open_folder,
             open_releases
         ])
         .run(tauri::generate_context!())

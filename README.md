@@ -5,7 +5,7 @@ Synchronisation de dossiers **en temps réel**, légère et rapide (Tauri 2 + Ru
 ## Fonctionnalités
 
 - Plusieurs paires de dossiers, chacune en **bidirectionnel** (le plus récent gagne) ou en **miroir A → B**.
-- Comparaison par **date de modification + taille** (tolérance de 2 s pour FAT/SMB).
+- Comparaison par **date de modification + taille** (exacte sur NTFS, tolérance de 2 s pour FAT/exFAT et réseau).
 - **Temps réel** : surveillance du système de fichiers + vérification complète périodique (indispensable sur NAS/SMB, où la surveillance n'est pas fiable).
 - **Suppressions** synchronisées en option : les fichiers vont à la **corbeille** (dans `.symple-trash/AAAA-MM-JJ/` sur les partages réseau, qui n'ont pas de corbeille).
 - **Conflits** (modifié des deux côtés), au choix pour chaque paire :
@@ -15,6 +15,7 @@ Synchronisation de dossiers **en temps réel**, légère et rapide (Tauri 2 + Ru
 - **Exclusions** par motifs (`*.tmp`, `Thumbs.db`, `node_modules`, `cache/*`…).
 - Copie **atomique** (fichier temporaire puis renommage), date d'origine conservée, copies parallèles.
 - Sécurité : si un dossier devient inaccessible ou vide d'un coup (NAS débranché), la synchro est suspendue au lieu de tout supprimer.
+- Garde-fou réglable par paire : au-delà d'un pourcentage de fichiers à supprimer d'un coup (50 % par défaut, 0 = désactivé), la synchro est suspendue.
 - Icône dans la barre des tâches, lancement au démarrage, démarrage réduit. Fermer la fenêtre laisse Symple tourner en arrière-plan.
 
 ## Télécharger

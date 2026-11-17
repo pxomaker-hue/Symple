@@ -40,7 +40,13 @@ pub struct PairConfig {
     /// Télécharger les fichiers « en ligne uniquement » (placeholders OneDrive/Nextcloud…) pour les copier.
     /// Désactivé : ils sont ignorés, sans jamais être supprimés ni écrasés.
     pub download_online_only: bool,
+    /// Garde-fou : synchro suspendue si une vérification complète veut supprimer plus de ce
+    /// pourcentage des fichiers suivis (au moins `MASS_DELETE_MIN` fichiers). 0 = désactivé.
+    pub max_delete_pct: u32,
 }
+
+/// En dessous de ce nombre de suppressions, le garde-fou ne se déclenche jamais.
+pub const MASS_DELETE_MIN: usize = 20;
 
 impl Default for PairConfig {
     fn default() -> Self {
@@ -57,6 +63,7 @@ impl Default for PairConfig {
             poll_secs: 30,
             versions: 0,
             download_online_only: false,
+            max_delete_pct: 50,
         }
     }
 }

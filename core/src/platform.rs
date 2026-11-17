@@ -40,6 +40,45 @@ pub fn long_path(p: &Path) -> PathBuf {
     }
 }
 
+/// Dates de modification imprécises : réseau (SMB arrondit), FAT/exFAT (2 s), ou système inconnu.
+/// Seuls les disques locaux NTFS/ReFS permettent une comparaison exacte.
+pub fn coarse_mtime(p: &Path) -> bool {
+    if is_network(p) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Storage::FileSystem::{GetVolumeInformationW, GetVolumePathNameW};
+        let path: Vec<u16> = p.as_os_str().to_string_lossy().encode_utf16().chain(Some(0)).collect();
+        let mut root = [0u16; 512];
+        let mut fs_name = [0u16; 64];
+        // SAFETY : tampons de taille annoncée, chaînes terminées par 0.
+        let ok = unsafe {
+            GetVolumePathNameW(path.as_ptr(), root.as_mut_ptr(), root.len() as u32) != 0
+                && GetVolumeInformationW(
+                    root.as_ptr(),
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    fs_name.as_mut_ptr(),
+                    fs_name.len() as u32,
+                ) != 0
+        };
+        if !ok {
+            return true;
+        }
+        let n = fs_name.iter().position(|&c| c == 0).unwrap_or(fs_name.len());
+        let name = String::from_utf16_lossy(&fs_name[..n]).to_ascii_uppercase();
+        !(name == "NTFS" || name == "REFS")
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 /// Partage réseau (`\\serveur\partage`) ou lecteur réseau mappé (`Z:`).
 pub fn is_network(p: &Path) -> bool {
     let s = p.to_string_lossy();
