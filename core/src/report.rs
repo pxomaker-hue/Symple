@@ -55,6 +55,8 @@ pub struct PairStatus {
     pub last_sync: Option<i64>,
     pub files: usize,
     pub conflicts: usize,
+    /// Chemins des conflits encore en attente (pour retirer ceux qui ont disparu).
+    pub conflict_rels: Vec<String>,
     pub watching: bool,
     pub error: Option<String>,
 }

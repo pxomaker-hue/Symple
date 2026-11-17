@@ -152,7 +152,7 @@ function openEditor(p) {
   editing = p || null;
   const d = p || {
     name: "", left: "", right: "", mode: "bidirectional", conflict: "newest_with_backup",
-    propagate_deletes: false, excludes: S.default_excludes, poll_secs: 30, versions: 0, download_online_only: false, max_delete_pct: 50,
+    propagate_deletes: false, excludes: S.default_excludes, poll_secs: 30, versions: 0, download_online_only: false, max_delete_pct: 50, purge_days: 30,
   };
   $("#pair-title").textContent = p ? t("editPairTitle") : t("newPairTitle");
   form.name.value = d.name;
@@ -164,6 +164,7 @@ function openEditor(p) {
   form.poll_secs.value = d.poll_secs;
   form.versions.value = d.versions || 0;
   form.max_delete_pct.value = d.max_delete_pct ?? 50;
+  form.purge_days.value = d.purge_days ?? 30;
   setSeg("mode", d.mode);
   setSeg("conflict", d.conflict);
   $("#pair-error").textContent = "";
@@ -198,6 +199,7 @@ function pairFromForm() {
     poll_secs: Math.max(2, parseInt(form.poll_secs.value, 10) || 30),
     versions: Math.max(0, Math.min(100, parseInt(form.versions.value, 10) || 0)),
     max_delete_pct: Math.max(0, Math.min(100, parseInt(form.max_delete_pct.value, 10) || 0)),
+    purge_days: Math.max(0, Math.min(3650, parseInt(form.purge_days.value, 10) || 0)),
     enabled: editing ? editing.enabled : true,
   };
   if (!pair.name) pair.name = `${baseName(pair.left)} ${pair.mode === "mirror" ? "→" : "⇄"} ${baseName(pair.right)}`;
@@ -449,7 +451,8 @@ listen("status", (e) => {
   const s = e.payload;
   S.statuses[s.pair_id] = s;
   if (s.state !== "syncing") delete PROG[s.pair_id];
-  if (!s.conflicts) S.conflicts = S.conflicts.filter((c) => c.pair_id !== s.pair_id);
+  const rels = s.conflict_rels || [];
+  S.conflicts = S.conflicts.filter((c) => c.pair_id !== s.pair_id || rels.includes(c.rel));
   scheduleRender();
 });
 listen("progress", (e) => {

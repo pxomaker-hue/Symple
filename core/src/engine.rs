@@ -7,7 +7,7 @@ use crate::report::*;
 use crate::tr;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -117,8 +117,11 @@ pub struct Engine {
     network: [bool; 2],
     /// Tolérance de comparaison des dates pour cette paire.
     tol: i64,
-    state: Tree,
+    /// Historique trié : permet de retrouver vite tous les chemins sous un dossier.
+    state: BTreeMap<String, Meta>,
     dirty: bool,
+    /// Date (AAAA-MM-JJ) de la dernière purge de la corbeille et des versions.
+    last_purge: String,
     state_path: PathBuf,
     pending: HashMap<String, Conflict>,
     /// Mis à `true` pour interrompre la synchro en cours (pause, arrêt).
@@ -140,6 +143,7 @@ impl Engine {
             cfg,
             state,
             dirty: false,
+            last_purge: String::new(),
             state_path,
             pending: HashMap::new(),
             cancel: Arc::default(),
@@ -291,6 +295,9 @@ impl Engine {
 
         stats.files = self.state.values().filter(|m| !m.dir).count();
         self.save_state();
+        if scope.is_none() && !stats.cancelled {
+            self.purge_old(rep);
+        }
         Ok(stats)
     }
 
@@ -337,7 +344,17 @@ impl Engine {
         let mut keys: BTreeSet<&String> = left.keys().chain(right.keys()).collect();
         let state_keys: Vec<&String> = match scope {
             None => self.state.keys().collect(),
-            Some(sc) => self.state.keys().filter(|k| sc.iter().any(|p| in_scope(k, p))).collect(),
+            Some(sc) if sc.iter().any(|p| p.is_empty()) => self.state.keys().collect(),
+            Some(sc) => sc
+                .iter()
+                .flat_map(|p| {
+                    self.state
+                        .range::<str, _>((std::ops::Bound::Included(p.as_str()), std::ops::Bound::Unbounded))
+                        .map(|(k, _)| k)
+                        .take_while(move |k| k.starts_with(p.as_str()))
+                        .filter(move |k| in_scope(k, p))
+                })
+                .collect(),
         };
         keys.extend(state_keys);
 
@@ -594,6 +611,43 @@ impl Engine {
             fs::create_dir_all(parent)?;
         }
         fs::rename(&p, &dst)
+    }
+
+    /// Supprime définitivement ce qui dort depuis plus de `purge_days` jours dans
+    /// `.symple-trash` et `.symple-versions` (au plus une fois par jour).
+    fn purge_old(&mut self, rep: &dyn Reporter) {
+        let days = self.cfg.purge_days;
+        let today = stamp(false);
+        if days == 0 || self.last_purge == today {
+            return;
+        }
+        self.last_purge = today;
+        let cutoff = date_ago(days);
+        let mut removed = 0;
+        for side in [Side::Left, Side::Right] {
+            let root = self.root(side);
+            if let Ok(rd) = fs::read_dir(root.join(TRASH_DIR)) {
+                for e in rd.flatten() {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    if is_date(&name) && name < cutoff && fs::remove_dir_all(e.path()).is_ok() {
+                        removed += 1;
+                    }
+                }
+            }
+            removed += purge_versions(&root.join(VERSIONS_DIR), &cutoff);
+        }
+        if removed > 0 {
+            self.log(
+                rep,
+                Level::Info,
+                tr!(
+                    "Purge : {} élément(s) de plus de {} jours supprimé(s) de la corbeille et des versions",
+                    "Purge: {} item(s) older than {} days removed from trash and versions",
+                    removed,
+                    days
+                ),
+            );
+        }
     }
 
     fn set_state(&mut self, rel: String, m: Meta) {
@@ -873,6 +927,33 @@ fn copy_file(
     res
 }
 
+/// `AAAA-MM-JJ`
+fn is_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10 && b[4] == b'-' && b[7] == b'-' && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+}
+
+/// Supprime les versions datées d'avant `cutoff` (date dans le nom : « nom (AAAA-MM-JJ HHhMMmSS).ext »)
+/// puis les dossiers devenus vides. Renvoie le nombre de fichiers supprimés.
+fn purge_versions(dir: &Path, cutoff: &str) -> usize {
+    let Ok(rd) = fs::read_dir(dir) else { return 0 };
+    let mut n = 0;
+    for e in rd.flatten() {
+        let p = e.path();
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            n += purge_versions(&p, cutoff);
+            let _ = fs::remove_dir(&p); // échoue sans effet s'il n'est pas vide
+            continue;
+        }
+        let name = e.file_name().to_string_lossy().into_owned();
+        let date = name.rfind(" (").and_then(|i| name.get(i + 2..i + 12));
+        if date.is_some_and(|d| is_date(d) && d < cutoff) && fs::remove_file(&p).is_ok() {
+            n += 1;
+        }
+    }
+    n
+}
+
 /// Écrit un fichier et attend qu'il soit sur le disque.
 pub fn write_durable(p: &Path, data: &[u8]) -> io::Result<()> {
     let mut f = fs::File::create(p)?;
@@ -951,9 +1032,20 @@ fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
-/// `AAAA-MM-JJ` ou `AAAA-MM-JJ HHhMMmSS` (19 caractères).
+/// Heure locale en secondes depuis 1970 (UTC si le fuseau est inconnu).
+fn local_secs() -> i64 {
+    now_ms() / 1000 + crate::platform::local_offset_secs()
+}
+
+/// Date locale d'il y a `days` jours (`AAAA-MM-JJ`).
+fn date_ago(days: u32) -> String {
+    let (y, m, d, ..) = civil(local_secs() - days as i64 * 86400);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// `AAAA-MM-JJ` ou `AAAA-MM-JJ HHhMMmSS` (19 caractères), en heure locale.
 fn stamp(with_time: bool) -> String {
-    let (y, m, d, h, mi, s) = civil(now_ms() / 1000);
+    let (y, m, d, h, mi, s) = civil(local_secs());
     if with_time {
         format!("{y:04}-{m:02}-{d:02} {h:02}h{mi:02}m{s:02}")
     } else {

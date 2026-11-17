@@ -8,9 +8,10 @@ Synchronisation de dossiers **en temps réel**, légère et rapide (Tauri 2 + Ru
 - Comparaison par **date de modification + taille** (exacte sur NTFS, tolérance de 2 s pour FAT/exFAT et réseau).
 - **Temps réel** : surveillance du système de fichiers + vérification complète périodique (indispensable sur NAS/SMB, où la surveillance n'est pas fiable).
 - **Suppressions** synchronisées en option : les fichiers vont à la **corbeille** (dans `.symple-trash/AAAA-MM-JJ/` sur les partages réseau, qui n'ont pas de corbeille).
+- **Purge automatique** (réglable par paire, 30 jours par défaut) de `.symple-trash` et des anciennes versions `.symple-versions`.
 - **Conflits** (modifié des deux côtés), au choix pour chaque paire :
   - *Me demander* : une fenêtre propose de garder A, B ou les deux ;
-  - *Plus récent + copie* : l'autre version est renommée `nom (conflit AAAA-MM-JJ HHhMM).ext` ;
+  - *Plus récent + copie* : l'autre version est renommée `nom (conflit AAAA-MM-JJ HHhMMmSS).ext` ;
   - *Plus récent* : rien n'est conservé.
 - **Exclusions** par motifs (`*.tmp`, `Thumbs.db`, `node_modules`, `cache/*`…).
 - Copie **atomique** (fichier temporaire puis renommage), date d'origine conservée, copies parallèles.
@@ -20,7 +21,7 @@ Synchronisation de dossiers **en temps réel**, légère et rapide (Tauri 2 + Ru
 
 ## Télécharger
 
-Les installateurs Windows (`.exe` NSIS et `.msi`) sont produits par GitHub Actions : onglet **Actions** → dernier build → artefact `symple-windows`. Pousser un tag `v*` crée une release (brouillon).
+Les installateurs Windows (`.exe` NSIS) sont produits par GitHub Actions : onglet **Actions** → dernier build → artefact `symple-windows`. Pousser un tag `v*` crée une release (brouillon).
 
 ## Compiler
 

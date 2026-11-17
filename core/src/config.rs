@@ -43,6 +43,8 @@ pub struct PairConfig {
     /// Garde-fou : synchro suspendue si une vérification complète veut supprimer plus de ce
     /// pourcentage des fichiers suivis (au moins `MASS_DELETE_MIN` fichiers). 0 = désactivé.
     pub max_delete_pct: u32,
+    /// Jours de conservation de `.symple-trash` et `.symple-versions` avant purge automatique (0 = jamais).
+    pub purge_days: u32,
 }
 
 /// En dessous de ce nombre de suppressions, le garde-fou ne se déclenche jamais.
@@ -64,6 +66,7 @@ impl Default for PairConfig {
             versions: 0,
             download_online_only: false,
             max_delete_pct: 50,
+            purge_days: 30,
         }
     }
 }
