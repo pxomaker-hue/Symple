@@ -5,7 +5,7 @@ Synchronisation de dossiers **en temps réel**, légère et rapide (Tauri 2 + Ru
 ## Fonctionnalités
 
 - Plusieurs paires de dossiers, chacune en **bidirectionnel** (le plus récent gagne) ou en **miroir A → B**.
-- Comparaison par **date de modification + taille** (tolérance de 2 s pour FAT/SMB).
+- Comparaison par **date de modification + taille** (exacte sur NTFS, tolérance de 2 s pour FAT/exFAT et réseau).
 - **Temps réel** : surveillance du système de fichiers + vérification complète périodique (indispensable sur NAS/SMB, où la surveillance n'est pas fiable).
 - **Suppressions** synchronisées en option : les fichiers vont à la **corbeille** (dans `.symple-trash/AAAA-MM-JJ/` sur les partages réseau, qui n'ont pas de corbeille).
 - **Conflits** (modifié des deux côtés), au choix pour chaque paire :
